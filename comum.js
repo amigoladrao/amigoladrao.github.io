@@ -1,5 +1,4 @@
-// Endereço da API (onde os dados ficam salvos). Publicado: servidor externo (codificado só pra não ficar
-// legível no código-fonte; quem abrir as ferramentas de rede ainda vê). Local (XAMPP): api.php ao lado.
+// Endereço da API
 const API = location.hostname.endsWith('github.io') ? atob('aHR0cHM6Ly9zeXNybS5jb20uYnIvd3MtYWwvYXBpLnBocA==') : 'api.php';
 
 const $ = s => document.querySelector(s);
