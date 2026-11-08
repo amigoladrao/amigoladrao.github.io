@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0d14">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%23f2b84b%27 stroke-width=%272%27%3E%3Crect x=%273%27 y=%278%27 width=%2718%27 height=%274%27 rx=%271%27/%3E%3Cpath d=%27M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7%27/%3E%3C/svg%3E">
+<title>Amigo Ladrão · Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="estilo.css">
+<script src="comum.js"></script>
+<style>
+.wrap{max-width:760px}
+.linha{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.pessoa{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.pessoa:last-child{border-bottom:0}
+.pessoa b{flex:1;min-width:0;overflow-wrap:anywhere}
+.st{font-size:.8rem;color:var(--sub);white-space:nowrap}
+.st.ok{color:var(--ok)}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="marca"></div>
+  <nav><button class="btn btn-sm" id="novo">Novo evento</button></nav>
+</header>
+<main class="wrap stack" id="app"><p class="vazio">Carregando…</p></main>
+
+<script>
+$('.marca').innerHTML = ICONE + 'Amigo Ladrão · Admin';
+let chave = lerLocal('alChave'), r = null, links = [];
+const api = (a, dados = {}) => chamar(a, { k: chave || '', ...dados });
+const linkParticipante = (t = '') => new URL('./' + (t ? '?t=' + t : ''), location.href).href;
+const copiar = (txt, b) => navigator.clipboard.writeText(txt).then(() => b.textContent = 'Copiado ✓', () => prompt('Copie:', txt));
+
+async function assumir() {
+  const x = await api('assumir');
+  if (x.erro) {
+    $('#app').innerHTML = `<div class="card stack"><h2>Este evento já tem um organizador</h2>
+      <p class="muted" style="margin:0">${esc(x.erro)}</p><a class="btn btn-pri" href="./">Ir para a página do participante</a></div>`;
+    return false;
+  }
+  chave = x.chave; gravarLocal('alChave', chave); return true;
+}
+
+function render() {
+  const feitos = links.filter(p => p.sorteou).length;
+  $('#app').innerHTML = `
+  <div class="card stack">
+    ${r.sorteado
+      ? `<div><span class="label" style="color:var(--ok)">Inscrições encerradas</span><h2>${feitos} de ${r.lista.length} já sortearam</h2></div>
+         <p class="muted" style="margin:0">Cada pessoa abre o link no celular, toca em "Sortear" e vê só o seu. Ninguém pode trocar. (Só você vê quem já sorteou.)</p>`
+      : `<div><span class="label" style="color:var(--ok)">Inscrições abertas</span><h2>Mande este link para o pessoal</h2></div>
+         <div class="linha"><b style="overflow-wrap:anywhere">${esc(linkParticipante())}</b><button class="btn btn-sm" id="copiar">Copiar link</button></div>`}
+  </div>
+  <div class="card linha">
+    <label for="prazo"><span class="label">Prazo para sortear</span><br><span class="muted" style="font-size:.85rem">Aparece no celular de todos</span></label>
+    <input class="input" type="date" id="prazo" value="${esc(r.prazo)}" style="width:auto">
+  </div>
+  <div class="card stack">
+    <div class="linha"><h3>Participantes<span class="conta">${r.lista.length}</span></h3>
+      ${r.sorteado ? '' : '<span class="muted" style="font-size:.82rem">Toque num nome para remover</span>'}</div>
+    ${r.sorteado
+      ? `<div>${links.map(p => `<div class="pessoa"><b>${esc(p.nome)}</b>
+          <span class="st ${p.sorteou ? 'ok' : ''}">${p.sorteou ? '✓ sorteou' : 'aguardando'}</span>
+          <button class="btn btn-sm" data-t="${p.t}" title="Link pessoal, caso a pessoa troque de celular">Link</button></div>`).join('')}</div>`
+      : r.lista.length
+        ? `<div class="chips">${r.lista.map(n => `<button class="chip" data-n="${esc(n)}">${esc(n)}</button>`).join('')}</div>`
+        : '<p class="vazio">Esperando as inscrições…</p>'}
+    ${r.sorteado ? '' : `<button class="btn btn-pri btn-full" id="encerrar" ${r.lista.length < 3 ? 'disabled' : ''}>
+      Encerrar inscrições${r.lista.length < 3 ? ' (mínimo 3 pessoas)' : ''}</button>`}
+  </div>`;
+
+  $('#prazo').onchange = async e => { await api('prazo', { prazo: e.target.value }); atualizar(true) };
+  $('#copiar')?.addEventListener('click', e => copiar(linkParticipante(), e.target));
+  document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => copiar(linkParticipante(b.dataset.t), b));
+  document.querySelectorAll('button.chip').forEach(b => b.onclick = async () => {
+    if (confirm('Remover ' + b.dataset.n + ' da lista?')) { await api('remover', { nome: b.dataset.n }); atualizar(true) }
+  });
+  $('#encerrar')?.addEventListener('click', async () => {
+    if (!confirm(`Encerrar as inscrições com ${r.lista.length} pessoas? Depois disso cada um já pode sortear e não dá para desfazer.`)) return;
+    const x = await api('encerrar');
+    if (x.erro) alert(x.erro);
+    atualizar(true);
+  });
+}
+
+let ultimo = '';
+async function atualizar(forca) {
+  try {
+    r = await chamar('estado');
+    links = r.sorteado ? await api('links') : []; // só o admin vê quem já sorteou
+  } catch { return }
+  const k = JSON.stringify([r, links]);
+  if (!forca && k === ultimo) return; // só redesenha quando algo muda
+  ultimo = k; render();
+}
+
+$('#novo').onclick = async () => {
+  if (!confirm('Começar um evento novo? A lista e o sorteio atuais serão apagados.')) return;
+  const x = await api('novo');
+  if (x.erro) { gravarLocal('alChave', null); chave = null; if (!await assumir()) return }
+  atualizar(true);
+};
+
+(async () => {
+  if (!chave && !await assumir()) return;
+  const x = await api('links'); // chave antiga (ex.: servidor zerado)? assume de novo
+  if (x.erro && !await assumir()) return;
+  atualizar(true); setInterval(atualizar, 3000);
+})();
+</script>
+</body>
+</html>

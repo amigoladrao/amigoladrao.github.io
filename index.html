@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0d14">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%23f2b84b%27 stroke-width=%272%27%3E%3Crect x=%273%27 y=%278%27 width=%2718%27 height=%274%27 rx=%271%27/%3E%3Cpath d=%27M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7%27/%3E%3C/svg%3E">
+<title>Amigo Ladrão</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="estilo.css">
+<script src="comum.js"></script>
+<style>.wrap{max-width:560px}</style>
+</head>
+<body>
+<header class="top"><div class="marca"></div></header>
+<main class="wrap stack">
+  <section id="prazo"></section>
+  <section id="sorteio"></section>
+  <section id="inscricao"></section>
+  <section id="lista"></section>
+</main>
+
+<script>
+$('.marca').innerHTML = ICONE + 'Amigo Ladrão';
+let tok = lerLocal('alToken'), r = null, kInsc = null, kSort = null, girando = false;
+
+function renderInscricao() {
+  const k = [r.sorteado, r.eu?.nome].join('|');
+  if (k === kInsc) return; // não apaga o que a pessoa está digitando
+  kInsc = k;
+  const el = $('#inscricao');
+  if (r.eu) {
+    el.innerHTML = r.sorteado ? '' : `<div class="card ok stack" style="gap:6px">
+      <span class="label">Inscrição confirmada</span>
+      <h2>Você está na lista, ${esc(r.eu.nome)}!</h2>
+      <p class="muted" style="margin:0">Quando o organizador encerrar as inscrições, o botão de sortear aparece aqui. Pode fechar e voltar depois por este mesmo link.</p>
+      <div><button class="btn btn-sm" id="sair">Sair da lista</button></div>
+    </div>`;
+    $('#sair')?.addEventListener('click', async () => {
+      if (!confirm('Tirar seu nome da lista?')) return;
+      await chamar('sair', { t: tok }); tok = null; gravarLocal('alToken', null); atualizar();
+    });
+  } else if (r.sorteado) {
+    el.innerHTML = `<div class="card"><h2>Inscrições encerradas</h2><p class="muted" style="margin:6px 0 0">O sorteio já começou.</p></div>`;
+  } else {
+    el.innerHTML = `<form class="card stack" id="f" style="gap:10px">
+      <span class="label">Inscrição</span>
+      <h2 style="margin-bottom:4px">Coloque seu nome na lista</h2>
+      <input class="input" id="nome" placeholder="Seu nome" maxlength="30" autocomplete="name" enterkeyhint="send" required>
+      <button class="btn btn-pri btn-full">Entrar na lista</button>
+      <p class="erro" id="err"></p>
+    </form>`;
+    $('#f').onsubmit = async e => {
+      e.preventDefault();
+      const b = e.target.querySelector('button'); b.disabled = true;
+      try {
+        const x = await chamar('entrar', { nome: $('#nome').value });
+        if (x.erro) { $('#err').textContent = x.erro; return }
+        tok = x.token; gravarLocal('alToken', tok); atualizar();
+      } catch { $('#err').textContent = 'Sem conexão. Tente de novo.' }
+      finally { b.disabled = false }
+    };
+  }
+}
+
+const mostraResultado = amigo => `<div class="card hero revelado">
+  <span class="label">Você tirou</span>
+  <div class="nome">${esc(amigo)}</div>
+  <p class="muted" style="margin:0">Resultado definitivo, não dá para trocar.</p>
+</div>`;
+
+function renderSorteio() {
+  if (girando) return;
+  const el = $('#sorteio');
+  const k = [r.sorteado, r.eu?.sorteou].join('|');
+  if (k === kSort) return;
+  kSort = k;
+  if (!r.eu || !r.sorteado) return el.innerHTML = '';
+  if (r.eu.sorteou) return el.innerHTML = mostraResultado(r.eu.amigo);
+  el.innerHTML = `<div class="card hero">
+    <span class="label">Inscrições encerradas</span>
+    <div class="nome" id="roleta" style="font-size:clamp(1.8rem,8vw,3rem)">${esc(r.eu.nome)}, é sua vez!</div>
+    <p class="muted" style="margin:0 0 18px">Toque no botão para sortear seu amigo.</p>
+    <button class="btn btn-pri btn-full" id="btnSortear" style="min-height:56px;font-size:1.1rem">Sortear</button>
+    <p class="erro" id="errS"></p>
+  </div>`;
+  $('#btnSortear').onclick = async e => {
+    e.target.disabled = true; girando = true;
+    let x;
+    try { x = await chamar('sortear', { t: tok }) } catch { x = { erro: 'Sem conexão. Tente de novo.' } }
+    if (x.erro) { girando = false; e.target.disabled = false; return $('#errS').textContent = x.erro }
+    const outros = r.lista.filter(n => n !== r.eu.nome);
+    for (let i = 0; i < 26; i++) { // só efeito visual: o resultado já veio do servidor
+      $('#roleta').textContent = outros[Math.random() * outros.length | 0];
+      await new Promise(ok => setTimeout(ok, 40 + i * 6));
+    }
+    el.innerHTML = mostraResultado(x.amigo);
+    navigator.vibrate?.(120);
+    girando = false; kSort = null; atualizar();
+  };
+}
+
+function renderLista() {
+  $('#lista').innerHTML = `<div class="card stack">
+    <h3>Participantes<span class="conta">${r.lista.length}</span></h3>
+    ${chipsLista(r.lista, r.eu?.nome)}
+  </div>`;
+}
+
+async function atualizar() {
+  try { r = await chamar('estado', null, '&t=' + encodeURIComponent(tok || '')) } catch { return }
+  if (tok && !r.eu) { tok = null; gravarLocal('alToken', null) } // removido ou evento novo
+  $('#prazo').innerHTML = r.prazo ? `<div class="prazo">Amigo Ladrão · sortear até ${dataCurta(r.prazo)}</div>` : '';
+  renderSorteio(); renderInscricao(); renderLista();
+}
+const t = new URLSearchParams(location.search).get('t'); // link pessoal enviado pelo organizador
+if (t) { tok = t; gravarLocal('alToken', t); history.replaceState(null, '', location.pathname) }
+atualizar(); setInterval(atualizar, 3000);
+</script>
+</body>
+</html>
